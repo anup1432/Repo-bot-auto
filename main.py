@@ -2,24 +2,21 @@ import asyncio
 import schedule
 import time
 import threading
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle  # ← idle import karo yahan se
 from pyrogram.types import Message
 
 # ────────────────────────────────────────────────
-# Tere details + SESSION STRING (ab OTP nahi maangega)
 API_ID = 34757634
 API_HASH = "70057be15aa6ef11f83e4ca7d2c9bc1a"
 SESSION_STRING = "BQISXAIAS2pMQyhBi-UMpNv8VWB9F19EmMwFuuPwkAV7xklsqE5Idxz0yI9FHLF1DM6QgdAzBes70y8_ns_FeXseyGtklumlZ20-QR6iD1_dagP3aNdCanxsuGLXCL3SRH3DvNrbahR1HrNo-2Cv3WzQgHRob-XBtIaIjTRtfb33TMx9HwZUmXMVTQQDoHgTQzQbUMlM-l4TOb9rWWCWmNzbvX1-uE9kHj5-YMgJnw_NVm89Bv03Gme5L8IxK6GDk5b2HZnawtCyd1kxiBg1DoAxtrRtA9yy94yraCa3OxyrY-4me0dnEVgU9KPkz8m9-tKtiktnvB9mytyLdO2YrqjcydUnOQAAAAH4Su13AA"
 
 ADMIN_ID = 1804574038
 
-# Memory values (restart pe reset ho jayenge)
 groups = []
 message_text = "Default message 🔥"
-timer_sec = 900  # 15 min default
+timer_sec = 900  # 15 min
 sending = False
 
-# Client ab session string se login karega
 app = Client(
     "my_userbot",
     api_id=API_ID,
@@ -63,15 +60,16 @@ async def handle(client, message: Message):
 
     elif cmd == "settime":
         if len(message.command) > 1:
-            val = message.command[1]
+            val = message.command[1].lower()
             try:
+                num = int(val[:-1])
                 if val.endswith("m"):
-                    timer_sec = int(val[:-1]) * 60
+                    timer_sec = num * 60
                 elif val.endswith("h"):
-                    timer_sec = int(val[:-1]) * 3600
+                    timer_sec = num * 3600
                 await message.reply(f"Timer set to {val}")
             except:
-                await message.reply("Invalid format! Example: 15m or 1h")
+                await message.reply("Invalid! Use 15m or 1h format")
 
     elif cmd == "startsend":
         if not message_text.strip() or not groups:
@@ -92,20 +90,20 @@ async def handle(client, message: Message):
             f"Groups: {len(groups)}"
         )
 
-async def send_task():
+async def send_messages():
     if not sending:
         return
-    for g in groups:
+    for entity in groups:
         try:
-            await app.send_message(g, message_text)
-            print(f"Sent to {g}")
+            await app.send_message(entity, message_text)
+            print(f"Sent to {entity}")
         except Exception as e:
-            print(f"Send error to {g}: {e}")
+            print(f"Error sending to {entity}: {e}")
 
-def scheduler():
-    loop = asyncio.get_running_loop()
+# Scheduler ko main event loop se handle karo (thread safe)
+def run_scheduler():
     def job():
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(send_task()))
+        asyncio.create_task(send_messages())  # main loop mein task create karo
     schedule.every(timer_sec).seconds.do(job)
     while True:
         schedule.run_pending()
@@ -114,8 +112,13 @@ def scheduler():
 async def main():
     await app.start()
     print("Userbot logged in and running (session string se)")
-    threading.Thread(target=scheduler, daemon=True).start()
-    await app.idle()
+
+    # Scheduler ko background thread mein start karo
+    threading.Thread(target=run_scheduler, daemon=True).start()
+
+    # Global idle use karo (pyrogram se import kiya hai)
+    await idle()
+
     await app.stop()
 
 if __name__ == "__main__":
