@@ -1,6 +1,11 @@
 import asyncio
+import schedule
+import time
+import threading
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pyrogram import Client, filters, idle
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message
 
 # ────────────────────────────────────────────────
 API_ID = 34757634
@@ -9,9 +14,9 @@ SESSION_STRING = "BQISXAIAS2pMQyhBi-UMpNv8VWB9F19EmMwFuuPwkAV7xklsqE5Idxz0yI9FHL
 
 ADMIN_ID = 1804574038
 
-groups = []               # list of chat IDs (groups)
+groups = []
 message_text = "Default message 🔥"
-timer_sec = 900           # 15 minutes
+timer_sec = 900
 sending = False
 
 app = Client(
@@ -21,116 +26,98 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-# ================= BUTTON PANEL =================
-def main_buttons():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Add This Group", callback_data="add_current")],
-        [InlineKeyboardButton("▶ Start Sending", callback_data="start")],
-        [InlineKeyboardButton("⛔ Stop Sending", callback_data="stop")],
-        [InlineKeyboardButton("📊 Status", callback_data="status")]
-    ])
+# Telegram commands (same as before)
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.command)
+async def handle(client, message: Message):
+    global groups, message_text, timer_sec, sending
+    cmd = message.command[0].lower()
 
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.command("start"))
-async def start_panel(client, message):
-    await message.reply(
-        "**🔥 Userbot Control Panel**\n\nUse buttons below to control:",
-        reply_markup=main_buttons()
-    )
+    if cmd in ["start", "help"]:
+        await message.reply("Commands:\n/add <link or chat ID>\n/setmessage <text>\n/settime 15m\n/startsend\n/stop\n/list\n/status")
 
-# ================= CALLBACK QUERIES =================
-@app.on_callback_query(filters.user(ADMIN_ID))
-async def callbacks(client, callback_query):
-    global sending
+    elif cmd == "add":
+        if len(message.command) > 1:
+            entity = message.command[1]
+            if entity not in groups:
+                groups.append(entity)
+                await message.reply(f"Added {entity}")
+            else:
+                await message.reply("Already added")
 
-    data = callback_query.data
+    elif cmd == "list":
+        await message.reply("\n".join(groups) or "No groups")
 
-    if data == "start":
-        if not groups:
-            await callback_query.answer("No groups added yet!", show_alert=True)
+    elif cmd == "setmessage":
+        if len(message.command) > 1:
+            message_text = " ".join(message.command[1:])
+            await message.reply(f"Message set: {message_text}")
+
+    elif cmd == "settime":
+        if len(message.command) > 1:
+            val = message.command[1].lower()
+            try:
+                num = int(val[:-1])
+                if val.endswith("m"):
+                    timer_sec = num * 60
+                elif val.endswith("h"):
+                    timer_sec = num * 3600
+                await message.reply(f"Timer set to {val}")
+            except:
+                await message.reply("Invalid format")
+
+    elif cmd == "startsend":
+        if not message_text.strip() or not groups:
+            await message.reply("Set message and groups first!")
             return
         sending = True
-        await callback_query.answer("Sending started ✅")
+        await message.reply("Started ✅")
 
-    elif data == "stop":
+    elif cmd == "stop":
         sending = False
-        await callback_query.answer("Sending stopped ⛔")
+        await message.reply("Stopped ⛔")
 
-    elif data == "status":
-        status_text = (
-            f"**Status**\n"
-            f"Sending: {'ON' if sending else 'OFF'}\n"
-            f"Timer interval: {timer_sec // 60} minutes\n"
-            f"Message: {message_text}\n"
-            f"Groups count: {len(groups)}"
-        )
-        await callback_query.message.reply(status_text)
+    elif cmd == "status":
+        await message.reply(f"Sending: {sending}\nTimer: {timer_sec}s\nMessage: {message_text}\nGroups: {len(groups)}")
 
-    elif data == "add_current":
-        # Yeh button sirf private mein hai, current group add nahi kar sakta
-        await callback_query.answer("Use /add <chat_id> or add in group", show_alert=True)
-
-    await callback_query.answer()
-
-# ================= AUTO ADD GROUP (group mein command se) =================
-@app.on_message(filters.group & filters.command("addme") & filters.user(ADMIN_ID))
-async def add_group(client, message):
-    chat_id = message.chat.id
-    if chat_id not in groups:
-        groups.append(chat_id)
-        await message.reply("✅ This group added to auto-sending list")
-    else:
-        await message.reply("Already added")
-
-# ================= SET MESSAGE =================
-@app.on_message(filters.private & filters.command("setmessage") & filters.user(ADMIN_ID))
-async def set_msg(client, message):
-    global message_text
-    if len(message.command) < 2:
-        await message.reply("Usage: /setmessage Your message here")
+async def send_messages():
+    if not sending:
         return
-    message_text = " ".join(message.command[1:])
-    await message.reply(f"Message updated:\n{message_text}")
+    for entity in groups:
+        try:
+            await app.send_message(entity, message_text)
+            print(f"Sent to {entity}")
+        except Exception as e:
+            print(f"Error: {e}")
 
-# ================= SET TIMER =================
-@app.on_message(filters.private & filters.command("settime") & filters.user(ADMIN_ID))
-async def set_time(client, message):
-    global timer_sec
-    if len(message.command) < 2:
-        await message.reply("Usage: /settime 15m or /settime 1h")
-        return
-    val = message.command[1].lower()
-    try:
-        num = int(val[:-1])
-        if val.endswith("m"):
-            timer_sec = num * 60
-        elif val.endswith("h"):
-            timer_sec = num * 3600
-        else:
-            raise ValueError
-        await message.reply(f"Timer set to {num} {val[-1]}")
-    except:
-        await message.reply("Invalid format. Use 15m or 1h etc.")
-
-# ================= SCHEDULER LOOP =================
-async def scheduler_loop():
-    global sending
+def run_scheduler():
+    schedule.every(timer_sec).seconds.do(lambda: asyncio.create_task(send_messages()))
     while True:
-        if sending and groups:
-            for chat_id in groups:
-                try:
-                    await app.send_message(chat_id, message_text)
-                    print(f"Sent to {chat_id}")
-                except Exception as e:
-                    print(f"Error sending to {chat_id}: {e}")
-                    # Optional: groups.remove(chat_id) agar invalid chat ho
-        await asyncio.sleep(timer_sec)
+        schedule.run_pending()
+        time.sleep(1)
 
-# ================= MAIN =================
+# Dummy HTTP server to satisfy Render port check
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK - Userbot is alive")
+
+def start_http():
+    port = int(os.getenv("PORT", 10000))  # Render PORT env var use karega
+    server = HTTPServer(("", port), HealthCheckHandler)
+    print(f"Dummy server started on port {port}")
+    server.serve_forever()
+
 async def main():
     await app.start()
-    print("OK - Userbot is running")
-    asyncio.create_task(scheduler_loop())
+    print("Userbot logged in")
+
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    threading.Thread(target=start_http, daemon=True).start()
+
     await idle()
+    await app.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
