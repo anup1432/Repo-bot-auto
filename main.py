@@ -2,7 +2,7 @@ import asyncio
 import schedule
 import time
 import threading
-from pyrogram import Client, filters, idle  # ← idle import karo yahan se
+from pyrogram import Client, filters, idle   # ← idle yahan se import
 from pyrogram.types import Message
 
 # ────────────────────────────────────────────────
@@ -14,7 +14,7 @@ ADMIN_ID = 1804574038
 
 groups = []
 message_text = "Default message 🔥"
-timer_sec = 900  # 15 min
+timer_sec = 900  # change kar sakta hai
 sending = False
 
 app = Client(
@@ -32,7 +32,7 @@ async def handle(client, message: Message):
     if cmd in ["start", "help"]:
         await message.reply(
             "Commands:\n"
-            "/add <link or @username or -100xxxx>\n"
+            "/add <link/@username/-100xxxx>\n"
             "/setmessage <text>\n"
             "/settime 15m or 1h\n"
             "/startsend\n"
@@ -69,7 +69,7 @@ async def handle(client, message: Message):
                     timer_sec = num * 3600
                 await message.reply(f"Timer set to {val}")
             except:
-                await message.reply("Invalid! Use 15m or 1h format")
+                await message.reply("Invalid format! Use like 15m or 1h")
 
     elif cmd == "startsend":
         if not message_text.strip() or not groups:
@@ -100,11 +100,14 @@ async def send_messages():
         except Exception as e:
             print(f"Error sending to {entity}: {e}")
 
-# Scheduler ko main event loop se handle karo (thread safe)
 def run_scheduler():
+    # Yeh function background thread mein chalega
+    # Har timer_sec seconds pe send_messages task schedule karega (main loop mein)
     def job():
-        asyncio.create_task(send_messages())  # main loop mein task create karo
+        asyncio.create_task(send_messages())  # direct create_task (main loop context assume karta hai)
+
     schedule.every(timer_sec).seconds.do(job)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -113,10 +116,10 @@ async def main():
     await app.start()
     print("Userbot logged in and running (session string se)")
 
-    # Scheduler ko background thread mein start karo
+    # Scheduler ko background mein shuru karo
     threading.Thread(target=run_scheduler, daemon=True).start()
 
-    # Global idle use karo (pyrogram se import kiya hai)
+    # Client ko alive rakhne ke liye global idle use karo
     await idle()
 
     await app.stop()
