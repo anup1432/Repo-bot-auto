@@ -1,132 +1,104 @@
 import asyncio
-import schedule
-import time
-import threading
 from pyrogram import Client, filters, idle
-from pyrogram.types import Message
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import socketserver
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ────────────────────────────────────────────────
 API_ID = 34757634
 API_HASH = "70057be15aa6ef11f83e4ca7d2c9bc1a"
-SESSION_STRING = "BQISXAIAS2pMQyhBi-UMpNv8VWB9F19EmMwFuuPwkAV7xklsqE5Idxz0yI9FHLF1DM6QgdAzBes70y8_ns_FeXseyGtklumlZ20-QR6iD1_dagP3aNdCanxsuGLXCL3SRH3DvNrbahR1HrNo-2Cv3WzQgHRob-XBtIaIjTRtfb33TMx9HwZUmXMVTQQDoHgTQzQbUMlM-l4TOb9rWWCWmNzbvX1-uE9kHj5-YMgJnw_NVm89Bv03Gme5L8IxK6GDk5b2HZnawtCyd1kxiBg1DoAxtrRtA9yy94yraCa3OxyrY-4me0dnEVgU9KPkz8m9-tKtiktnvB9mytyLdO2YrqjcydUnOQAAAAH4Su13AA"
+SESSION_STRING = "BQISXAIAS2pMQyhBi-UMpNv8VWB9F19EmMwFuuPwkAV7xklsqE5Idxz0yI9FHLF1DM6QgdAzBes70y8_ns_FeXseyGtklumlZ20-QR6iD1_dagP3aNdCanxsuGLXCL3SRH3DvNrbahR1HrNo-2Cv3WzQgHRob-XBtIaIjTRtfb33TMx9HwZUmXMVTQQDoHgTQzQbUMlM-l4TOb9rWWCWmNzbvX1"
 
 ADMIN_ID = 1804574038
 
-groups = []
+groups = set()
 message_text = "Default message 🔥"
 timer_sec = 900
 sending = False
 
 app = Client(
-    "my_userbot",
+    "userbot",
     api_id=API_ID,
     api_hash=API_HASH,
     session_string=SESSION_STRING
 )
 
-# ────────────────────────────────────────────────
-# Telegram commands
-@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.command)
-async def handle(client, message: Message):
-    global groups, message_text, timer_sec, sending
-    cmd = message.command[0].lower()
+# ================= BUTTON PANEL =================
 
-    if cmd in ["start", "help"]:
-        await message.reply("Commands:\n/add <link/@username>\n/setmessage <text>\n/settime 15m\n/startsend\n/stop\n/list\n/status")
+def main_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Add This Group", callback_data="add")],
+        [InlineKeyboardButton("▶ Start Sending", callback_data="start")],
+        [InlineKeyboardButton("⛔ Stop Sending", callback_data="stop")],
+        [InlineKeyboardButton("📊 Status", callback_data="status")]
+    ])
 
-    elif cmd == "add":
-        if len(message.command) > 1:
-            entity = message.command[1]
-            if entity not in groups:
-                groups.append(entity)
-                await message.reply(f"Added: {entity}")
-            else:
-                await message.reply("Already added")
+@app.on_message(filters.private & filters.user(ADMIN_ID) & filters.command("start"))
+async def start_panel(client, message):
+    await message.reply(
+        "🔥 Userbot Control Panel",
+        reply_markup=main_buttons()
+    )
 
-    elif cmd == "list":
-        await message.reply("\n".join(groups) or "No groups")
+# ================= CALLBACK =================
 
-    elif cmd == "setmessage":
-        if len(message.command) > 1:
-            message_text = " ".join(message.command[1:])
-            await message.reply(f"Set: {message_text}")
+@app.on_callback_query(filters.user(ADMIN_ID))
+async def callbacks(client, callback_query):
+    global sending
 
-    elif cmd == "settime":
-        if len(message.command) > 1:
-            val = message.command[1].lower()
-            try:
-                num = int(val[:-1])
-                if val.endswith("m"):
-                    timer_sec = num * 60
-                elif val.endswith("h"):
-                    timer_sec = num * 3600
-                await message.reply(f"Timer: {val}")
-            except:
-                await message.reply("Galat format")
+    data = callback_query.data
 
-    elif cmd == "startsend":
-        if not message_text.strip() or not groups:
-            await message.reply("Pehle set karo")
-            return
+    if data == "start":
         sending = True
-        await message.reply("Started ✅")
+        await callback_query.answer("Started ✅")
 
-    elif cmd == "stop":
+    elif data == "stop":
         sending = False
-        await message.reply("Stopped ⛔")
+        await callback_query.answer("Stopped ⛔")
 
-    elif cmd == "status":
-        await message.reply(f"Sending: {sending}\nTimer: {timer_sec}s\nGroups: {len(groups)}")
+    elif data == "status":
+        await callback_query.message.reply(
+            f"Sending: {sending}\n"
+            f"Groups: {len(groups)}\n"
+            f"Timer: {timer_sec}s\n"
+            f"Message: {message_text}"
+        )
 
-async def send_messages():
-    if not sending:
-        return
-    for entity in groups:
-        try:
-            await app.send_message(entity, message_text)
-            print(f"Sent to {entity}")
-        except Exception as e:
-            print(f"Error: {e}")
+    await callback_query.answer()
 
-def run_scheduler():
-    schedule.every(timer_sec).seconds.do(lambda: asyncio.create_task(send_messages()))
+# ================= AUTO GROUP TARGET =================
+
+@app.on_message(filters.group & filters.command("startsend") & filters.user(ADMIN_ID))
+async def auto_add_group(client, message):
+    chat_id = message.chat.id
+    groups.add(chat_id)
+    await message.reply("✅ This group added to auto sending list")
+
+# ================= SET MESSAGE =================
+
+@app.on_message(filters.private & filters.command("setmessage") & filters.user(ADMIN_ID))
+async def set_msg(client, message):
+    global message_text
+    message_text = " ".join(message.command[1:])
+    await message.reply("Message updated ✅")
+
+# ================= SCHEDULER LOOP =================
+
+async def scheduler_loop():
+    global sending
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        if sending:
+            for chat_id in groups:
+                try:
+                    await app.send_message(chat_id, message_text)
+                except Exception as e:
+                    print(e)
+        await asyncio.sleep(timer_sec)
 
-# ────────────────────────────────────────────────
-# Dummy HTTP server for Render (port 8080 pe bind karega)
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"OK - Userbot is running")
+# ================= MAIN =================
 
-def start_http_server():
-    PORT = int(os.environ.get("PORT", 8080))  # Render PORT env var use karega
-    with socketserver.TCPServer(("", PORT), SimpleHandler) as httpd:
-        print(f"Dummy server running on port {PORT}")
-        httpd.serve_forever()
-
-# ────────────────────────────────────────────────
 async def main():
     await app.start()
-    print("Userbot started with session string")
-
-    # Scheduler thread
-    threading.Thread(target=run_scheduler, daemon=True).start()
-
-    # Dummy HTTP server thread (Render ko satisfy karega)
-    threading.Thread(target=start_http_server, daemon=True).start()
-
-    print("Dummy HTTP server started for Render port binding")
-
-    await idle()  # Pyrogram idle
-    await app.stop()
+    print("OK - Userbot is running")
+    asyncio.create_task(scheduler_loop())
+    await idle()
 
 if __name__ == "__main__":
-    import os  # PORT ke liye
     asyncio.run(main())
