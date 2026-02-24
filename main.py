@@ -2,8 +2,10 @@ import asyncio
 import schedule
 import time
 import threading
-from pyrogram import Client, filters, idle   # ← idle yahan se import
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import socketserver
 
 # ────────────────────────────────────────────────
 API_ID = 34757634
@@ -14,7 +16,7 @@ ADMIN_ID = 1804574038
 
 groups = []
 message_text = "Default message 🔥"
-timer_sec = 900  # change kar sakta hai
+timer_sec = 900
 sending = False
 
 app = Client(
@@ -24,22 +26,15 @@ app = Client(
     session_string=SESSION_STRING
 )
 
+# ────────────────────────────────────────────────
+# Telegram commands
 @app.on_message(filters.private & filters.user(ADMIN_ID) & filters.command)
 async def handle(client, message: Message):
     global groups, message_text, timer_sec, sending
     cmd = message.command[0].lower()
 
     if cmd in ["start", "help"]:
-        await message.reply(
-            "Commands:\n"
-            "/add <link/@username/-100xxxx>\n"
-            "/setmessage <text>\n"
-            "/settime 15m or 1h\n"
-            "/startsend\n"
-            "/stop\n"
-            "/list\n"
-            "/status"
-        )
+        await message.reply("Commands:\n/add <link/@username>\n/setmessage <text>\n/settime 15m\n/startsend\n/stop\n/list\n/status")
 
     elif cmd == "add":
         if len(message.command) > 1:
@@ -51,12 +46,12 @@ async def handle(client, message: Message):
                 await message.reply("Already added")
 
     elif cmd == "list":
-        await message.reply("\n".join(groups) or "No groups added")
+        await message.reply("\n".join(groups) or "No groups")
 
     elif cmd == "setmessage":
         if len(message.command) > 1:
             message_text = " ".join(message.command[1:])
-            await message.reply(f"Message set: {message_text}")
+            await message.reply(f"Set: {message_text}")
 
     elif cmd == "settime":
         if len(message.command) > 1:
@@ -67,13 +62,13 @@ async def handle(client, message: Message):
                     timer_sec = num * 60
                 elif val.endswith("h"):
                     timer_sec = num * 3600
-                await message.reply(f"Timer set to {val}")
+                await message.reply(f"Timer: {val}")
             except:
-                await message.reply("Invalid format! Use like 15m or 1h")
+                await message.reply("Galat format")
 
     elif cmd == "startsend":
         if not message_text.strip() or not groups:
-            await message.reply("Pehle message aur groups set karo!")
+            await message.reply("Pehle set karo")
             return
         sending = True
         await message.reply("Started ✅")
@@ -83,12 +78,7 @@ async def handle(client, message: Message):
         await message.reply("Stopped ⛔")
 
     elif cmd == "status":
-        await message.reply(
-            f"Sending: {sending}\n"
-            f"Timer: {timer_sec} seconds\n"
-            f"Message: {message_text}\n"
-            f"Groups: {len(groups)}"
-        )
+        await message.reply(f"Sending: {sending}\nTimer: {timer_sec}s\nGroups: {len(groups)}")
 
 async def send_messages():
     if not sending:
@@ -98,31 +88,45 @@ async def send_messages():
             await app.send_message(entity, message_text)
             print(f"Sent to {entity}")
         except Exception as e:
-            print(f"Error sending to {entity}: {e}")
+            print(f"Error: {e}")
 
 def run_scheduler():
-    # Yeh function background thread mein chalega
-    # Har timer_sec seconds pe send_messages task schedule karega (main loop mein)
-    def job():
-        asyncio.create_task(send_messages())  # direct create_task (main loop context assume karta hai)
-
-    schedule.every(timer_sec).seconds.do(job)
-
+    schedule.every(timer_sec).seconds.do(lambda: asyncio.create_task(send_messages()))
     while True:
         schedule.run_pending()
         time.sleep(1)
 
+# ────────────────────────────────────────────────
+# Dummy HTTP server for Render (port 8080 pe bind karega)
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK - Userbot is running")
+
+def start_http_server():
+    PORT = int(os.environ.get("PORT", 8080))  # Render PORT env var use karega
+    with socketserver.TCPServer(("", PORT), SimpleHandler) as httpd:
+        print(f"Dummy server running on port {PORT}")
+        httpd.serve_forever()
+
+# ────────────────────────────────────────────────
 async def main():
     await app.start()
-    print("Userbot logged in and running (session string se)")
+    print("Userbot started with session string")
 
-    # Scheduler ko background mein shuru karo
+    # Scheduler thread
     threading.Thread(target=run_scheduler, daemon=True).start()
 
-    # Client ko alive rakhne ke liye global idle use karo
-    await idle()
+    # Dummy HTTP server thread (Render ko satisfy karega)
+    threading.Thread(target=start_http_server, daemon=True).start()
 
+    print("Dummy HTTP server started for Render port binding")
+
+    await idle()  # Pyrogram idle
     await app.stop()
 
 if __name__ == "__main__":
+    import os  # PORT ke liye
     asyncio.run(main())
